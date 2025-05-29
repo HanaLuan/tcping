@@ -87,7 +87,10 @@ type Options struct {
 
 func handleError(err error, exitCode int) {
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
+		_, err := fmt.Fprintf(os.Stderr, "错误: %v\n", err)
+		if err != nil {
+			return
+		}
 		os.Exit(exitCode)
 	}
 }
@@ -278,7 +281,7 @@ func pingOnce(ctx context.Context, address, port string, timeout int, stats *Sta
 	select {
 	case <-dialCtx.Done():
 		// 如果是主上下文取消，显示中断信息
-		if ctx.Err() == context.Canceled {
+		if errors.Is(ctx.Err(), context.Canceled) {
 			msg := "\n操作被中断, 连接尝试已中止\n"
 			fmt.Print(infoText(msg, opts.ColorOutput))
 			return
@@ -331,7 +334,7 @@ func pingOnce(ctx context.Context, address, port string, timeout int, stats *Sta
 }
 
 func printTCPingStatistics(stats *Statistics) {
-	sent, responded, min, max, avg := stats.getStats()
+	sent, responded, statMin, statMax, avg := stats.getStats()
 
 	fmt.Printf("\n\n--- 目标主机 TCP ping 统计 ---\n")
 
@@ -342,7 +345,7 @@ func printTCPingStatistics(stats *Statistics) {
 
 		if responded > 0 {
 			fmt.Printf("往返时间(RTT): 最小 = %.2fms, 最大 = %.2fms, 平均 = %.2fms\n",
-				min, max, avg)
+				statMin, statMax, avg)
 		}
 	}
 }
@@ -371,7 +374,7 @@ func setupFlags(opts *Options) {
 	// 定义命令行标志，同时设置短选项和长选项
 	ipv4 := flag.Bool("4", false, "使用 IPv4 地址")
 	ipv6 := flag.Bool("6", false, "使用 IPv6 地址")
-	count := flag.Int("n", 0, "发送请求次数 (默认: 无限)")
+	count := flag.Int("n", -1, "发送请求次数 (默认: 4)") // 默认-1，后续判断
 	interval := flag.Int("t", 1000, "请求间隔（毫秒）")
 	timeout := flag.Int("w", 1000, "连接超时（毫秒）")
 	port := flag.Int("p", 0, "指定要连接的端口 (默认: 80)")
@@ -383,7 +386,7 @@ func setupFlags(opts *Options) {
 	// 设置长选项别名
 	flag.BoolVar(ipv4, "ipv4", false, "使用 IPv4 地址")
 	flag.BoolVar(ipv6, "ipv6", false, "使用 IPv6 地址")
-	flag.IntVar(count, "count", 0, "发送请求次数 (默认: 无限)")
+	flag.IntVar(count, "count", -1, "发送请求次数 (默认: 4)")
 	flag.IntVar(interval, "interval", 1000, "请求间隔（毫秒）")
 	flag.IntVar(timeout, "timeout", 1000, "连接超时（毫秒）")
 	flag.IntVar(port, "port", 0, "指定要连接的端口 (默认: 80)")
@@ -398,7 +401,12 @@ func setupFlags(opts *Options) {
 	// 设置选项结构
 	opts.UseIPv4 = *ipv4
 	opts.UseIPv6 = *ipv6
-	opts.Count = *count
+	// 关键变更：如果未指定 -n/--count，则默认4次
+	if *count == -1 {
+		opts.Count = 4
+	} else {
+		opts.Count = *count
+	}
 	opts.Interval = *interval
 	opts.Timeout = *timeout
 	opts.Port = *port
