@@ -6,13 +6,14 @@
 
 ## 功能概述
 
-**TCPing** 是一个基于 Golang 的 TCP 连接测试工具，支持以下功能：
+**TCPing** 是一个基于 Golang 的 TCP/HTTP 连接测试工具，支持以下功能：
 
 - 支持 IPv4 和 IPv6 地址解析，包括标准格式、IPv4的十进制和十六进制格式。
 - 自定义端口、请求次数、间隔时间和超时时间。
 - 彩色输出和详细模式，便于调试和分析。
 - 提供丰富的错误处理和帮助信息。
 - 支持域名解析，自动选择 IPv4 或 IPv6 地址。
+- **HTTP模式**：支持HTTP/HTTPS服务测试，自动估算传输带宽。
 
 
 
@@ -68,7 +69,8 @@ TCPing 提供了详细的错误处理机制，确保用户能够快速定位问�
 **TCPing** 工具提供了多种选项来满足不同的网络测试需求：
 
 ```
-tcping [选项] <主机> [端口]
+tcping [选项] <主机> [端口]      # TCP模式
+tcping -H [选项] <URI>           # HTTP模式
 ```
 
 #### 命令行选项
@@ -77,12 +79,13 @@ tcping [选项] <主机> [端口]
 |------|------------|----------------------------------|----------|
 | -4   | --ipv4     | 强制使用 IPv4                      | 自动检测   |
 | -6   | --ipv6     | 强制使用 IPv6                      | 自动检测   |
-| -n   | --count    | 发送请求的次数                      | 无限      |
+| -n   | --count    | 发送请求的次数                      | 4        |
 | -p   | --port     | 指定要连接的端口                    | 80       |
 | -t   | --interval | 请求之间的间隔（毫秒）                 | 1000毫秒       |
 | -w   | --timeout  | 连接超时（毫秒）                    | 1000毫秒  |
 | -c   | --color    | 启用彩色输出                        | 关闭      |
 | -v   | --verbose  | 启用详细模式，显示更多连接信息         | 关闭      |
+| -H   | --http     | 启用HTTP模式，测试HTTP/HTTPS服务     | 关闭      |
 | -V   | --version  | 显示版本信息                        | -        |
 | -h   | --help     | 显示帮助信息                        | -        |
 
@@ -176,6 +179,35 @@ TCP连接失败 203.0.113.1:80: seq=1 错误=连接超时
 
 --- 目标主机 TCP ping 统计 ---
 已发送 = 2, 已接收 = 0, 丢失 = 2 (100.0% 丢失)
+```
+
+### HTTP模式示例
+
+测试HTTPS服务并显示带宽：
+
+```
+$ tcping -H https://www.github.com
+正在对 https://www.github.com 执行 HTTP Ping (User-Agent: tcping/v1.8.0.11ae0ba)
+HTTP 200 https://www.github.com: seq=0 time=150.23ms size=45621 bytes bandwidth=2.43 Mbps
+HTTP 200 https://www.github.com: seq=1 time=143.15ms size=45621 bytes bandwidth=2.55 Mbps
+^C
+操作被中断。
+
+--- HTTP ping 统计 ---
+已发送 = 2, 已接收 = 2, 丢失 = 0 (0.0% 丢失)
+往返时间(RTT): 最小 = 143.15ms, 最大 = 150.23ms, 平均 = 146.69ms
+总传输数据: 91242 bytes (0.09 MB)
+估算带宽: 最小 = 2.43 Mbps, 最大 = 2.55 Mbps, 平均 = 2.49 Mbps
+```
+
+带详细信息的HTTP测试：
+
+```
+$ tcping -H -v -n 3 https://api.github.com
+正在对 https://api.github.com 执行 HTTP Ping (User-Agent: tcping/v1.8.0.11ae0ba)
+HTTP 200 https://api.github.com: seq=0 time=421.56ms size=2891 bytes bandwidth=0.05 Mbps
+  详细信息: 状态=200 OK, Content-Type=application/json; charset=utf-8, Server=github.com
+...
 ```
 
 ### 高级用法

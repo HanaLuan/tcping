@@ -2,6 +2,7 @@ package main
 
 import (
 	"testing"
+	"time"
 )
 
 func TestValidatePort(t *testing.T) {
@@ -159,5 +160,111 @@ func TestValidateOptions(t *testing.T) {
 	_, _, err = validateOptions(opts, []string{"8.8.8.8"})
 	if err != nil {
 		t.Errorf("validateOptions failed: %v", err)
+	}
+}
+
+// 测试HTTP统计更新
+func TestStatisticsUpdateHTTP(t *testing.T) {
+	var s Statistics
+	
+	// 测试第一次更新
+	s.updateHTTP(100, 1024, true)
+	sent, responded, totalBytes, minTime, maxTime, avgTime, minBW, maxBW, avgBW := s.getHTTPStats()
+	
+	if sent != 1 {
+		t.Errorf("sent = %d, want 1", sent)
+	}
+	if responded != 1 {
+		t.Errorf("responded = %d, want 1", responded)
+	}
+	if totalBytes != 1024 {
+		t.Errorf("totalBytes = %d, want 1024", totalBytes)
+	}
+	if minTime != 100 {
+		t.Errorf("minTime = %v, want 100", minTime)
+	}
+	if maxTime != 100 {
+		t.Errorf("maxTime = %v, want 100", maxTime)
+	}
+	if avgTime != 100 {
+		t.Errorf("avgTime = %v, want 100", avgTime)
+	}
+	
+	// 计算期望的带宽: (1024 * 8) / (100 * 1000) = 0.08192 Mbps
+	expectedBW := float64(1024*8) / (100 * 1000)
+	if minBW != expectedBW {
+		t.Errorf("minBW = %v, want %v", minBW, expectedBW)
+	}
+	if maxBW != expectedBW {
+		t.Errorf("maxBW = %v, want %v", maxBW, expectedBW)
+	}
+	if avgBW != expectedBW {
+		t.Errorf("avgBW = %v, want %v", avgBW, expectedBW)
+	}
+	
+	// 测试失败的请求
+	s.updateHTTP(50, 0, false)
+	sent, responded, _, _, _, _, _, _, _ = s.getHTTPStats()
+	if sent != 2 {
+		t.Errorf("sent = %d, want 2", sent)
+	}
+	if responded != 1 {
+		t.Errorf("responded = %d, want 1 (failed request should not increment)", responded)
+	}
+	
+	// 测试多次成功请求
+	s.updateHTTP(200, 2048, true)
+	sent, responded, totalBytes, minTime, maxTime, avgTime, _, _, _ = s.getHTTPStats()
+	if sent != 3 {
+		t.Errorf("sent = %d, want 3", sent)
+	}
+	if responded != 2 {
+		t.Errorf("responded = %d, want 2", responded)
+	}
+	if totalBytes != 3072 {
+		t.Errorf("totalBytes = %d, want 3072", totalBytes)
+	}
+	if minTime != 100 {
+		t.Errorf("minTime = %v, want 100", minTime)
+	}
+	if maxTime != 200 {
+		t.Errorf("maxTime = %v, want 200", maxTime)
+	}
+	if avgTime != 150 {
+		t.Errorf("avgTime = %v, want 150", avgTime)
+	}
+}
+
+// 测试并发更新
+func TestStatisticsConcurrentUpdateHTTP(t *testing.T) {
+	var s Statistics
+	done := make(chan bool)
+	
+	// 启动多个goroutine并发更新
+	for i := 0; i < 10; i++ {
+		go func(id int) {
+			time.Sleep(time.Millisecond * time.Duration(id))
+			s.updateHTTP(float64(100+id*10), int64(1024*(id+1)), true)
+			done <- true
+		}(i)
+	}
+	
+	// 等待所有goroutine完成
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+	
+	sent, responded, totalBytes, _, _, _, _, _, _ := s.getHTTPStats()
+	if sent != 10 {
+		t.Errorf("sent = %d, want 10", sent)
+	}
+	if responded != 10 {
+		t.Errorf("responded = %d, want 10", responded)
+	}
+	
+	// 总字节数应该是 1024 + 2048 + 3072 + ... + 10240 = 1024 * (1+2+...+10) = 1024 * 55
+	expectedBytes := int64(1024 * 55)
+	if totalBytes != expectedBytes {
+		t.Errorf("totalBytes = %d, want %d", totalBytes, expectedBytes)
 	}
 }

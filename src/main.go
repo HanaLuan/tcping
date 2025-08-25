@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -16,8 +20,14 @@ import (
 	"time"
 )
 
+// 这些变量将在编译时通过 -ldflags 注入
+var (
+	version     = "dev"      // 默认开发版本
+	gitHash     = "unknown"  // 默认未知hash
+	buildTime   = "unknown"  // 构建时间
+)
+
 const (
-	version     = "v1.7.1"
 	copyright   = "Copyright (c) 2025. All rights reserved."
 	programName = "TCPing"
 )
@@ -30,6 +40,10 @@ type Statistics struct {
 	maxTime        float64
 	avgTime        float64
 	totalTime      float64 // 添加总时间以简化平均计算
+	totalBytes     int64  // HTTP模式下的总字节数
+	minBandwidth   float64 // 最小带宽 (Mbps)
+	maxBandwidth   float64 // 最大带宽 (Mbps)
+	avgBandwidth   float64 // 平均带宽 (Mbps)
 }
 
 func (s *Statistics) update(elapsed float64, success bool) {
@@ -64,12 +78,71 @@ func (s *Statistics) update(elapsed float64, success bool) {
 	}
 }
 
+// 新增：更新HTTP统计信息
+func (s *Statistics) updateHTTP(elapsed float64, bytes int64, success bool) {
+	// 原子操作增加发送计数
+	atomic.AddInt64(&s.sentCount, 1)
+
+	if !success {
+		return
+	}
+
+	// 对于成功响应的更新需要加锁
+	s.Lock()
+	defer s.Unlock()
+
+	newCount := atomic.AddInt64(&s.respondedCount, 1)
+	s.totalTime += elapsed
+	s.avgTime = s.totalTime / float64(newCount)
+	atomic.AddInt64(&s.totalBytes, bytes)
+
+	// 计算带宽 (Mbps) = (bytes * 8) / (elapsed_ms * 1000)
+	bandwidth := float64(bytes*8) / (elapsed * 1000)
+
+	// 首次响应特殊处理
+	if newCount == 1 {
+		s.minTime = elapsed
+		s.maxTime = elapsed
+		s.minBandwidth = bandwidth
+		s.maxBandwidth = bandwidth
+		s.avgBandwidth = bandwidth
+		return
+	}
+
+	// 更新时间统计
+	if elapsed < s.minTime {
+		s.minTime = elapsed
+	}
+	if elapsed > s.maxTime {
+		s.maxTime = elapsed
+	}
+
+	// 更新带宽统计
+	if bandwidth < s.minBandwidth {
+		s.minBandwidth = bandwidth
+	}
+	if bandwidth > s.maxBandwidth {
+		s.maxBandwidth = bandwidth
+	}
+	// 计算平均带宽
+	totalBandwidth := s.avgBandwidth * float64(newCount-1)
+	s.avgBandwidth = (totalBandwidth + bandwidth) / float64(newCount)
+}
+
 // 添加新的方法，获取统计信息，使用读锁减少阻塞
 func (s *Statistics) getStats() (sent, responded int64, min, max, avg float64) {
 	s.RLock()
 	defer s.RUnlock()
 
 	return s.sentCount, s.respondedCount, s.minTime, s.maxTime, s.avgTime
+}
+
+// 获取HTTP统计信息
+func (s *Statistics) getHTTPStats() (sent, responded, totalBytes int64, minTime, maxTime, avgTime, minBW, maxBW, avgBW float64) {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.sentCount, s.respondedCount, s.totalBytes, s.minTime, s.maxTime, s.avgTime, s.minBandwidth, s.maxBandwidth, s.avgBandwidth
 }
 
 type Options struct {
@@ -83,6 +156,7 @@ type Options struct {
 	ShowVersion bool
 	ShowHelp    bool
 	Port        int
+	HTTPMode    bool // HTTP模式
 }
 
 func handleError(err error, exitCode int) {
@@ -96,41 +170,52 @@ func handleError(err error, exitCode int) {
 }
 
 func printHelp() {
-	fmt.Printf(`%s %s - TCP 连接测试工具
+	fmt.Printf(`%s %s - TCP/HTTP 连接测试工具
 
 描述:
-    %s 测试到目标主机和端口的TCP连接性。
+    %s 测试到目标主机的TCP连接性或HTTP/HTTPS服务响应。
 
 用法: 
-    tcping [选项] <主机> [端口]      (默认端口: 80)
+    tcping [选项] <主机> [端口]                  # TCP模式 (默认端口: 80)
+    tcping -H [选项] <URI>                       # HTTP模式
 
 选项:
     -4, --ipv4              强制使用 IPv4
     -6, --ipv6              强制使用 IPv6
-    -n, --count <次数>      发送请求的次数 (默认: 无限)
+    -n, --count <次数>      发送请求的次数 (默认: 4)
     -p, --port <端口>       指定要连接的端口 (默认: 80)
-    -t, --interval <毫秒>    连接超时 (默认: 1000毫秒)
+    -t, --interval <毫秒>   请求间隔 (默认: 1000毫秒)
     -w, --timeout <毫秒>    连接超时 (默认: 1000毫秒)
     -c, --color             启用彩色输出
     -v, --verbose           启用详细模式，显示更多连接信息
+    -H, --http              启用HTTP模式，测试HTTP/HTTPS服务
     -V, --version           显示版本信息
     -h, --help              显示此帮助信息
 
-示例:
-    tcping google.com                	# 基本用法 (默认端口 80)
-    tcping google.com 80             	# 基本用法指定端口
-    tcping -p 443 google.com         	# 使用-p参数指定端口
-    tcping -4 -n 5 8.8.8.8 443       	# IPv4, 5次请求
-    tcping -w 2000 example.com 22    	# 2秒超时
-    tcping -4 -n 5 134744072 443     	# 十进制IPv4格式, 8.8.8.8
-    tcping 0x08080808 80             	# 十六进制IPv4格式, 8.8.8.8
-    tcping -c -v example.com 443     	# 彩色输出和详细模式
+TCP模式示例:
+    tcping google.com                    # 基本用法 (默认端口 80)
+    tcping google.com 80                 # 基本用法指定端口
+    tcping -p 443 google.com             # 使用-p参数指定端口
+    tcping -4 -n 5 8.8.8.8 443           # IPv4, 5次请求
+    tcping -c -v example.com 443         # 彩色输出和详细模式
+
+HTTP模式示例:
+    tcping -H https://www.google.com     # 测试HTTPS服务
+    tcping -H http://example.com         # 测试HTTP服务  
+    tcping -H -n 10 https://github.com   # 发送10次HTTP请求
+    tcping -H -v https://api.github.com  # 详细模式，显示响应信息
 
 `, programName, version, programName)
 }
 
 func printVersion() {
 	fmt.Printf("%s 版本 %s\n", programName, version)
+	if gitHash != "unknown" {
+		fmt.Printf("Git commit: %s\n", gitHash)
+	}
+	if buildTime != "unknown" {
+		fmt.Printf("构建时间: %s\n", buildTime)
+	}
 	fmt.Println(copyright)
 }
 
@@ -333,6 +418,101 @@ func pingOnce(ctx context.Context, address, port string, timeout int, stats *Sta
 	}
 }
 
+// HTTP ping功能
+func httpPingOnce(ctx context.Context, uri string, timeout int, stats *Statistics, seq int, opts *Options) {
+	// 创建自定义Transport支持超时和TLS
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: false,
+		},
+		DisableKeepAlives: true,
+	}
+
+	// 创建HTTP客户端
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   time.Duration(timeout) * time.Millisecond,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // 不自动跟随重定向
+		},
+	}
+
+	// 设置User-Agent
+	userAgent := fmt.Sprintf("tcping/%s.%s", version, gitHash)
+
+	// 创建请求
+	req, err := http.NewRequestWithContext(ctx, "GET", uri, nil)
+	if err != nil {
+		stats.updateHTTP(0, 0, false)
+		msg := fmt.Sprintf("HTTP请求创建失败 %s: seq=%d 错误=%v\n", uri, seq, err)
+		fmt.Print(errorText(msg, opts.ColorOutput))
+		return
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	// 执行请求并计时
+	start := time.Now()
+	resp, err := client.Do(req)
+	elapsed := float64(time.Since(start).Microseconds()) / 1000.0
+
+	if err != nil {
+		// 检查是否是上下文取消
+		if errors.Is(ctx.Err(), context.Canceled) {
+			msg := "\n操作被中断, HTTP请求已中止\n"
+			fmt.Print(infoText(msg, opts.ColorOutput))
+			return
+		}
+		stats.updateHTTP(elapsed, 0, false)
+		msg := fmt.Sprintf("HTTP请求失败 %s: seq=%d 错误=%v\n", uri, seq, err)
+		fmt.Print(errorText(msg, opts.ColorOutput))
+		return
+	}
+	defer resp.Body.Close()
+
+	// 读取响应体以计算传输字节数
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		stats.updateHTTP(elapsed, 0, false)
+		msg := fmt.Sprintf("HTTP响应读取失败 %s: seq=%d 错误=%v\n", uri, seq, err)
+		fmt.Print(errorText(msg, opts.ColorOutput))
+		return
+	}
+
+	// 计算总字节数（包括响应头的估算）
+	totalBytes := int64(len(body))
+	headerSize := 0
+	for key, values := range resp.Header {
+		headerSize += len(key)
+		for _, value := range values {
+			headerSize += len(value)
+		}
+	}
+	totalBytes += int64(headerSize)
+
+	// 更新统计
+	stats.updateHTTP(elapsed, totalBytes, true)
+
+	// 计算带宽 (Mbps)
+	bandwidth := float64(totalBytes*8) / (elapsed * 1000)
+
+	// 输出结果
+	msg := fmt.Sprintf("HTTP %d %s: seq=%d time=%.2fms size=%d bytes bandwidth=%.2f Mbps\n",
+		resp.StatusCode, uri, seq, elapsed, totalBytes, bandwidth)
+	
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		fmt.Print(successText(msg, opts.ColorOutput))
+	} else {
+		fmt.Print(errorText(msg, opts.ColorOutput))
+	}
+
+	if opts.VerboseMode {
+		fmt.Printf("  详细信息: 状态=%s, Content-Type=%s, Server=%s\n",
+			resp.Status,
+			resp.Header.Get("Content-Type"),
+			resp.Header.Get("Server"))
+	}
+}
+
 func printTCPingStatistics(stats *Statistics) {
 	sent, responded, statMin, statMax, avg := stats.getStats()
 
@@ -346,6 +526,27 @@ func printTCPingStatistics(stats *Statistics) {
 		if responded > 0 {
 			fmt.Printf("往返时间(RTT): 最小 = %.2fms, 最大 = %.2fms, 平均 = %.2fms\n",
 				statMin, statMax, avg)
+		}
+	}
+}
+
+// HTTP统计打印
+func printHTTPStatistics(stats *Statistics) {
+	sent, responded, totalBytes, minTime, maxTime, avgTime, minBW, maxBW, avgBW := stats.getHTTPStats()
+
+	fmt.Printf("\n\n--- HTTP ping 统计 ---\n")
+
+	if sent > 0 {
+		lossRate := float64(sent-responded) / float64(sent) * 100
+		fmt.Printf("已发送 = %d, 已接收 = %d, 丢失 = %d (%.1f%% 丢失)\n",
+			sent, responded, sent-responded, lossRate)
+
+		if responded > 0 {
+			fmt.Printf("往返时间(RTT): 最小 = %.2fms, 最大 = %.2fms, 平均 = %.2fms\n",
+				minTime, maxTime, avgTime)
+			fmt.Printf("总传输数据: %d bytes (%.2f MB)\n", totalBytes, float64(totalBytes)/1024/1024)
+			fmt.Printf("估算带宽: 最小 = %.2f Mbps, 最大 = %.2f Mbps, 平均 = %.2f Mbps\n",
+				minBW, maxBW, avgBW)
 		}
 	}
 }
@@ -380,6 +581,7 @@ func setupFlags(opts *Options) {
 	port := flag.Int("p", 0, "指定要连接的端口 (默认: 80)")
 	color := flag.Bool("c", false, "启用彩色输出")
 	verbose := flag.Bool("v", false, "启用详细模式")
+	httpMode := flag.Bool("H", false, "启用HTTP模式")
 	version := flag.Bool("V", false, "显示版本信息")
 	help := flag.Bool("h", false, "显示帮助信息")
 
@@ -392,6 +594,7 @@ func setupFlags(opts *Options) {
 	flag.IntVar(port, "port", 0, "指定要连接的端口 (默认: 80)")
 	flag.BoolVar(color, "color", false, "启用彩色输出")
 	flag.BoolVar(verbose, "verbose", false, "启用详细模式")
+	flag.BoolVar(httpMode, "http", false, "启用HTTP模式")
 	flag.BoolVar(version, "version", false, "显示版本信息")
 	flag.BoolVar(help, "help", false, "显示帮助信息")
 
@@ -412,6 +615,7 @@ func setupFlags(opts *Options) {
 	opts.Port = *port
 	opts.ColorOutput = *color
 	opts.VerboseMode = *verbose
+	opts.HTTPMode = *httpMode
 	opts.ShowVersion = *version
 	opts.ShowHelp = *help
 }
@@ -476,6 +680,90 @@ func main() {
 		os.Exit(0)
 	}
 
+	stats := &Statistics{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 创建信号捕获通道
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+
+	// 使用 WaitGroup 来确保后台 goroutine 正确退出
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// 创建错误通道
+	errChan := make(chan error, 1)
+
+	// HTTP模式处理
+	if opts.HTTPMode {
+		// HTTP模式下验证URI参数
+		if len(flag.Args()) < 1 {
+			handleError(errors.New("HTTP模式需要提供URI参数\n\n用法: tcping -H [选项] <URI>\n尝试 'tcping -h' 获取更多信息"), 1)
+		}
+
+		uri := flag.Args()[0]
+		
+		// 验证URI格式
+		parsedURL, err := url.Parse(uri)
+		if err != nil {
+			handleError(fmt.Errorf("无效的URI格式: %v", err), 1)
+		}
+		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+			handleError(errors.New("URI必须以http://或https://开头"), 1)
+		}
+
+		fmt.Printf("正在对 %s 执行 HTTP Ping (User-Agent: tcping/%s.%s)\n", uri, version, gitHash)
+
+		// 启动HTTP ping协程
+		go func() {
+			defer wg.Done()
+			defer signal.Stop(interrupt)
+
+		httpPingLoop:
+			for i := 0; opts.Count == 0 || i < opts.Count; i++ {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				// 执行HTTP ping
+				httpPingOnce(ctx, uri, opts.Timeout, stats, i, opts)
+
+				if opts.Count != 0 && i == opts.Count-1 {
+					break httpPingLoop
+				}
+
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(opts.Interval) * time.Millisecond):
+				}
+			}
+			select {
+			case errChan <- nil:
+			default:
+			}
+		}()
+
+		// 等待中断信号或完成
+		select {
+		case <-interrupt:
+			fmt.Printf("\n操作被中断。\n")
+			cancel()
+		case err := <-errChan:
+			if err != nil {
+				handleError(err, 1)
+			}
+		}
+
+		wg.Wait()
+		printHTTPStatistics(stats)
+		return
+	}
+
+	// TCP模式处理（原有逻辑）
 	// 集中验证所有参数
 	host, port, err := validateOptions(opts, flag.Args())
 	if err != nil {
@@ -504,20 +792,6 @@ func main() {
 	}
 
 	fmt.Printf("正在对 %s (%s - %s) 端口 %s 执行 TCP Ping\n", originalHost, ipType, ipAddress, port)
-	stats := &Statistics{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// 创建信号捕获通道
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
-
-	// 使用 WaitGroup 来确保后台 goroutine 正确退出
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	// 创建错误通道
-	errChan := make(chan error, 1)
 
 	// 启动ping协程
 	go func() {
