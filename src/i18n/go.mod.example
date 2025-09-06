@@ -1,0 +1,22 @@
+# Example go.mod file for TCPing with cross-platform i18n support
+
+module tcping
+
+go 1.24.3
+
+# Optional dependency for Windows API support
+# Only required if using Windows-specific locale detection
+# Can be omitted to use environment variables only
+require (
+    golang.org/x/sys v0.15.0
+)
+
+# If you want to avoid external dependencies entirely,
+# remove the golang.org/x/sys dependency and the Windows API
+# detection will automatically fallback to environment variables.
+
+# Build without Windows API support:
+# go build -tags no_windows_api ./src/main.go
+
+# The system will work perfectly fine on all platforms
+# using only environment variables and system commands.

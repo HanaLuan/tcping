@@ -157,6 +157,7 @@ type Options struct {
 	ShowHelp    bool
 	Port        int
 	HTTPMode    bool // HTTP模式
+	InsecureSSL bool // 跳过SSL/TLS证书验证
 }
 
 func handleError(err error, exitCode int) {
@@ -189,6 +190,7 @@ func printHelp() {
     -c, --color             启用彩色输出
     -v, --verbose           启用详细模式，显示更多连接信息
     -H, --http              启用HTTP模式，测试HTTP/HTTPS服务
+    -k, --insecure          跳过SSL/TLS证书验证（仅在HTTP模式下有效）
     -V, --version           显示版本信息
     -h, --help              显示此帮助信息
 
@@ -204,6 +206,7 @@ HTTP模式示例:
     tcping -H http://example.com         # 测试HTTP服务  
     tcping -H -n 10 https://github.com   # 发送10次HTTP请求
     tcping -H -v https://api.github.com  # 详细模式，显示响应信息
+    tcping -H -k https://self-signed.badssl.com  # 跳过SSL证书验证
 
 `, programName, version, programName)
 }
@@ -423,7 +426,7 @@ func httpPingOnce(ctx context.Context, uri string, timeout int, stats *Statistic
 	// 创建自定义Transport支持超时和TLS
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: false,
+			InsecureSkipVerify: opts.InsecureSSL,
 		},
 		DisableKeepAlives: true,
 	}
@@ -449,6 +452,11 @@ func httpPingOnce(ctx context.Context, uri string, timeout int, stats *Statistic
 		return
 	}
 	req.Header.Set("User-Agent", userAgent)
+
+	// 显示SSL验证警告（仅在详细模式下）
+	if opts.VerboseMode && opts.InsecureSSL {
+		fmt.Printf("  警告: SSL/TLS证书验证已禁用\n")
+	}
 
 	// 执行请求并计时
 	start := time.Now()
@@ -582,6 +590,7 @@ func setupFlags(opts *Options) {
 	color := flag.Bool("c", false, "启用彩色输出")
 	verbose := flag.Bool("v", false, "启用详细模式")
 	httpMode := flag.Bool("H", false, "启用HTTP模式")
+	insecure := flag.Bool("k", false, "跳过SSL/TLS证书验证")
 	version := flag.Bool("V", false, "显示版本信息")
 	help := flag.Bool("h", false, "显示帮助信息")
 
@@ -595,6 +604,7 @@ func setupFlags(opts *Options) {
 	flag.BoolVar(color, "color", false, "启用彩色输出")
 	flag.BoolVar(verbose, "verbose", false, "启用详细模式")
 	flag.BoolVar(httpMode, "http", false, "启用HTTP模式")
+	flag.BoolVar(insecure, "insecure", false, "跳过SSL/TLS证书验证")
 	flag.BoolVar(version, "version", false, "显示版本信息")
 	flag.BoolVar(help, "help", false, "显示帮助信息")
 
@@ -616,6 +626,7 @@ func setupFlags(opts *Options) {
 	opts.ColorOutput = *color
 	opts.VerboseMode = *verbose
 	opts.HTTPMode = *httpMode
+	opts.InsecureSSL = *insecure
 	opts.ShowVersion = *version
 	opts.ShowHelp = *help
 }
