@@ -81,3 +81,27 @@ func (c *CrossPlatformLanguageDetector) detectAndroidLanguage() string {
 	// Not applicable on Windows systems
 	return ""
 }
+
+// detectLinuxLanguage stub for Windows systems
+func (c *CrossPlatformLanguageDetector) detectLinuxLanguage() string {
+	// Not applicable on Windows systems - use Windows detection
+	return c.detectWindowsLanguage()
+}
+
+// detectBSDLanguage stub for Windows systems
+func (c *CrossPlatformLanguageDetector) detectBSDLanguage() string {
+	// Not applicable on Windows systems - use Windows detection
+	return c.detectWindowsLanguage()
+}
+
+// detectDarwinLanguage stub for Windows systems
+func (c *CrossPlatformLanguageDetector) detectDarwinLanguage() string {
+	// Not applicable on Windows systems - use Windows detection
+	return c.detectWindowsLanguage()
+}
+
+// detectUnixLanguage stub for Windows systems
+func (c *CrossPlatformLanguageDetector) detectUnixLanguage() string {
+	// Not applicable on Windows systems - use Windows detection
+	return c.detectWindowsLanguage()
+}
