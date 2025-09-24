@@ -78,6 +78,10 @@ func (t *TraditionalChineseLang) OptInsecure() string {
 	return "跳過SSL/TLS憑證驗證（僅在HTTP模式下有效）"
 }
 
+func (t *TraditionalChineseLang) OptLanguage() string {
+	return "設定語言 (en-US, ja-JP, ko-KR, zh-TW, zh-CN)"
+}
+
 func (t *TraditionalChineseLang) OptVersion() string {
 	return "顯示版本資訊"
 }
@@ -263,6 +267,18 @@ func (t *TraditionalChineseLang) MsgVerboseConnection() string {
 
 func (t *TraditionalChineseLang) MsgVerboseHTTP() string {
 	return "  詳細資訊: 狀態=%s, Content-Type=%s, Server=%s\n"
+}
+
+func (t *TraditionalChineseLang) MsgVerboseHTTPDetails() string {
+	return "  詳細資訊:\n"
+}
+
+func (t *TraditionalChineseLang) MsgVerboseHTTPStatus() string {
+	return "    狀態: %s\n"
+}
+
+func (t *TraditionalChineseLang) MsgVerboseHTTPHeaders() string {
+	return "    回應標頭:\n"
 }
 
 // Statistics

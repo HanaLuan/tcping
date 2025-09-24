@@ -78,6 +78,10 @@ func (j *JapaneseLang) OptInsecure() string {
 	return "SSL/TLS証明書の検証をスキップ（HTTPモードのみ有効）"
 }
 
+func (j *JapaneseLang) OptLanguage() string {
+	return "言語を設定 (en-US, ja-JP, ko-KR, zh-TW, zh-CN)"
+}
+
 func (j *JapaneseLang) OptVersion() string {
 	return "バージョン情報を表示"
 }
@@ -263,6 +267,18 @@ func (j *JapaneseLang) MsgVerboseConnection() string {
 
 func (j *JapaneseLang) MsgVerboseHTTP() string {
 	return "  詳細: ステータス=%s、Content-Type=%s、Server=%s\n"
+}
+
+func (j *JapaneseLang) MsgVerboseHTTPDetails() string {
+	return "  詳細:\n"
+}
+
+func (j *JapaneseLang) MsgVerboseHTTPStatus() string {
+	return "    ステータス: %s\n"
+}
+
+func (j *JapaneseLang) MsgVerboseHTTPHeaders() string {
+	return "    レスポンスヘッダー:\n"
 }
 
 // Statistics

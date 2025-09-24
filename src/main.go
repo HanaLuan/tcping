@@ -199,12 +199,10 @@ func printHelp() {
 	lang := i18n.T()
 	fmt.Printf(`%s %s - %s
 
-%s:
-    %s
+%s
 
-%s: 
-    %s
-    %s
+%s
+%s
 
 %s:
     -4, --ipv4              %s
@@ -217,7 +215,7 @@ func printHelp() {
     -v, --verbose           %s
     -H, --http              %s
     -k, --insecure          %s
-    -l, --language <code>   Set language (en-US, ja-JP, ko-KR, zh-TW, zh-CN)
+    -l, --language <code>   %s
     -V, --version           %s
     -h, --help              %s
 
@@ -236,7 +234,7 @@ func printHelp() {
     %s
 
 `, programName, version, lang.ProgramDescription(),
-		lang.UsageDescription(), programName,
+		fmt.Sprintf(lang.UsageDescription(), programName),
 		lang.UsageTCP(),
 		lang.UsageHTTP(),
 		lang.OptionsTitle(),
@@ -250,6 +248,7 @@ func printHelp() {
 		lang.OptVerbose(),
 		lang.OptHTTP(),
 		lang.OptInsecure(),
+		lang.OptLanguage(),
 		lang.OptVersion(),
 		lang.OptHelp(),
 		lang.TCPExamplesTitle(),
@@ -417,7 +416,7 @@ func pingOnce(ctx context.Context, address, port string, timeout int, stats *Sta
 
 	// 检查上下文取消
 	if errors.Is(ctx.Err(), context.Canceled) {
-		fmt.Print(infoText("\n操作被中断, 连接尝试已中止\n", opts.ColorOutput))
+		fmt.Print(infoText(i18n.T().MsgOperationCanceled(), opts.ColorOutput))
 		return
 	}
 
@@ -444,7 +443,7 @@ func pingOnce(ctx context.Context, address, port string, timeout int, stats *Sta
 		fmt.Print(errorText(msgBuilder.String(), opts.ColorOutput))
 
 		if opts.VerboseMode {
-			fmt.Printf("  详细信息: 连接尝试耗时 %.2fms, 目标 %s:%s\n", elapsed, address, port)
+			fmt.Printf(i18n.T().MsgVerboseDetails(), elapsed, address, port)
 		}
 		return
 	}
@@ -471,7 +470,7 @@ func pingOnce(ctx context.Context, address, port string, timeout int, stats *Sta
 
 	if opts.VerboseMode && conn != nil {
 		localAddr := conn.LocalAddr().String()
-		fmt.Printf("  详细信息: 本地地址=%s, 远程地址=%s:%s\n", localAddr, ip, port)
+		fmt.Printf(i18n.T().MsgVerboseConnection(), localAddr, ip, port)
 	}
 }
 
@@ -540,20 +539,13 @@ func httpPingOnce(ctx context.Context, uri string, timeout int, stats *Statistic
 	if err != nil {
 		// 检查是否是上下文取消
 		if errors.Is(ctx.Err(), context.Canceled) {
-			fmt.Print(infoText("\n操作被中断, HTTP请求已中止\n", opts.ColorOutput))
+			fmt.Print(infoText(i18n.T().MsgHTTPOperationCanceled(), opts.ColorOutput))
 			return
 		}
 		stats.updateHTTP(elapsed, 0, false)
-		// 使用strings.Builder优化错误消息构建
-		var msgBuilder strings.Builder
-		msgBuilder.WriteString("HTTP请求失败 ")
-		msgBuilder.WriteString(uri)
-		msgBuilder.WriteString(": seq=")
-		msgBuilder.WriteString(strconv.Itoa(seq))
-		msgBuilder.WriteString(" 错误=")
-		msgBuilder.WriteString(err.Error())
-		msgBuilder.WriteByte('\n')
-		fmt.Print(errorText(msgBuilder.String(), opts.ColorOutput))
+		// 使用i18n格式化错误消息
+		msg := fmt.Sprintf(i18n.T().MsgHTTPRequestFailedExec(), uri, seq, err)
+		fmt.Print(errorText(msg, opts.ColorOutput))
 		return
 	}
 	defer resp.Body.Close()
@@ -625,8 +617,8 @@ func httpPingOnce(ctx context.Context, uri string, timeout int, stats *Statistic
 
 	if opts.VerboseMode {
 		// Display response details with proper formatting
-		fmt.Printf("  详细信息:\n")
-		fmt.Printf("    状态: %s\n", resp.Status)
+		fmt.Print(i18n.T().MsgVerboseHTTPDetails())
+		fmt.Printf(i18n.T().MsgVerboseHTTPStatus(), resp.Status)
 		
 		// Display key headers
 		if contentType := resp.Header.Get("Content-Type"); contentType != "" {
@@ -646,7 +638,7 @@ func httpPingOnce(ctx context.Context, uri string, timeout int, stats *Statistic
 		}
 		
 		// Display all response headers in organized format
-		fmt.Printf("    响应头:\n")
+		fmt.Print(i18n.T().MsgVerboseHTTPHeaders())
 		headerNames := make([]string, 0, len(resp.Header))
 		for name := range resp.Header {
 			headerNames = append(headerNames, name)
@@ -666,9 +658,9 @@ func httpPingOnce(ctx context.Context, uri string, timeout int, stats *Statistic
 			for _, value := range values {
 				// Break long header values into multiple lines if needed
 				if len(value) > 60 {
-					fmt.Printf("      %s:\n        %s\n", name, value)
+					fmt.Printf("    %s:\n      %s\n", name, value)
 				} else {
-					fmt.Printf("      %s: %s\n", name, value)
+					fmt.Printf("    %s: %s\n", name, value)
 				}
 			}
 		}
@@ -678,15 +670,15 @@ func httpPingOnce(ctx context.Context, uri string, timeout int, stats *Statistic
 func printTCPingStatistics(stats *Statistics) {
 	sent, responded, statMin, statMax, avg := stats.getStats()
 
-	fmt.Printf("\n\n--- 目标主机 TCP ping 统计 ---\n")
+	fmt.Print(i18n.T().MsgTCPStatisticsTitle())
 
 	if sent > 0 {
 		lossRate := float64(sent-responded) / float64(sent) * 100
-		fmt.Printf("已发送 = %d, 已接收 = %d, 丢失 = %d (%.1f%% 丢失)\n",
+		fmt.Printf(i18n.T().MsgStatisticsSummary(),
 			sent, responded, sent-responded, lossRate)
 
 		if responded > 0 {
-			fmt.Printf("往返时间(RTT): 最小 = %.2fms, 最大 = %.2fms, 平均 = %.2fms\n",
+			fmt.Printf(i18n.T().MsgStatisticsRTT(),
 				statMin, statMax, avg)
 		}
 	}
@@ -696,18 +688,18 @@ func printTCPingStatistics(stats *Statistics) {
 func printHTTPStatistics(stats *Statistics) {
 	sent, responded, totalBytes, minTime, maxTime, avgTime, minBW, maxBW, avgBW := stats.getHTTPStats()
 
-	fmt.Printf("\n\n--- HTTP ping 统计 ---\n")
+	fmt.Print(i18n.T().MsgHTTPStatisticsTitle())
 
 	if sent > 0 {
 		lossRate := float64(sent-responded) / float64(sent) * 100
-		fmt.Printf("已发送 = %d, 已接收 = %d, 丢失 = %d (%.1f%% 丢失)\n",
+		fmt.Printf(i18n.T().MsgStatisticsSummary(),
 			sent, responded, sent-responded, lossRate)
 
 		if responded > 0 {
-			fmt.Printf("往返时间(RTT): 最小 = %.2fms, 最大 = %.2fms, 平均 = %.2fms\n",
+			fmt.Printf(i18n.T().MsgStatisticsRTT(),
 				minTime, maxTime, avgTime)
-			fmt.Printf("总传输数据: %d bytes (%.2f MB)\n", totalBytes, float64(totalBytes)/1024/1024)
-			fmt.Printf("估算带宽: 最小 = %.2f Mbps, 最大 = %.2f Mbps, 平均 = %.2f Mbps\n",
+			fmt.Printf(i18n.T().MsgStatisticsTotalData(), totalBytes, float64(totalBytes)/1024/1024)
+			fmt.Printf(i18n.T().MsgStatisticsBandwidth(),
 				minBW, maxBW, avgBW)
 		}
 	}
@@ -884,7 +876,7 @@ func main() {
 			handleError(errors.New("URI必须以http://或https://开头"), 1)
 		}
 
-		fmt.Printf("正在对 %s 执行 HTTP Ping (User-Agent: tcping/%s.%s)\n", uri, version, gitHash)
+		fmt.Printf(i18n.T().MsgHTTPPingStart(), uri, version, gitHash)
 
 		// 启动HTTP ping协程
 		go func() {
@@ -921,7 +913,7 @@ func main() {
 		// 等待中断信号或完成
 		select {
 		case <-interrupt:
-			fmt.Printf("\n操作被中断。\n")
+			fmt.Print(i18n.T().MsgInterrupted())
 			cancel()
 		case err := <-errChan:
 			if err != nil {
@@ -1005,7 +997,7 @@ func main() {
 	// 等待中断信号或完成
 	select {
 	case <-interrupt:
-		fmt.Printf("\n操作被中断。\n")
+		fmt.Print(i18n.T().MsgInterrupted())
 		cancel() // 取消上下文
 	case err := <-errChan:
 		if err != nil {

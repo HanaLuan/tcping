@@ -78,6 +78,10 @@ func (e *EnglishLang) OptInsecure() string {
 	return "Skip SSL/TLS certificate verification (HTTP mode only)"
 }
 
+func (e *EnglishLang) OptLanguage() string {
+	return "Set language (en-US, ja-JP, ko-KR, zh-TW, zh-CN)"
+}
+
 func (e *EnglishLang) OptVersion() string {
 	return "Show version information"
 }
@@ -263,6 +267,18 @@ func (e *EnglishLang) MsgVerboseConnection() string {
 
 func (e *EnglishLang) MsgVerboseHTTP() string {
 	return "  Details: Status=%s, Content-Type=%s, Server=%s\n"
+}
+
+func (e *EnglishLang) MsgVerboseHTTPDetails() string {
+	return "  Details:\n"
+}
+
+func (e *EnglishLang) MsgVerboseHTTPStatus() string {
+	return "    Status: %s\n"
+}
+
+func (e *EnglishLang) MsgVerboseHTTPHeaders() string {
+	return "    Response Headers:\n"
 }
 
 // Statistics

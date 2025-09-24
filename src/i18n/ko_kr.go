@@ -78,6 +78,10 @@ func (k *KoreanLang) OptInsecure() string {
 	return "SSL/TLS 인증서 검증 건너뛰기 (HTTP 모드만 유효)"
 }
 
+func (k *KoreanLang) OptLanguage() string {
+	return "언어 설정 (en-US, ja-JP, ko-KR, zh-TW, zh-CN)"
+}
+
 func (k *KoreanLang) OptVersion() string {
 	return "버전 정보 표시"
 }
@@ -263,6 +267,18 @@ func (k *KoreanLang) MsgVerboseConnection() string {
 
 func (k *KoreanLang) MsgVerboseHTTP() string {
 	return "  세부사항: 상태=%s, Content-Type=%s, Server=%s\n"
+}
+
+func (k *KoreanLang) MsgVerboseHTTPDetails() string {
+	return "  세부사항:\n"
+}
+
+func (k *KoreanLang) MsgVerboseHTTPStatus() string {
+	return "    상태: %s\n"
+}
+
+func (k *KoreanLang) MsgVerboseHTTPHeaders() string {
+	return "    응답 헤더:\n"
 }
 
 // Statistics

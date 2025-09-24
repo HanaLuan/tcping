@@ -29,6 +29,7 @@ type Language interface {
 	OptVerbose() string
 	OptHTTP() string
 	OptInsecure() string
+	OptLanguage() string
 	OptVersion() string
 	OptHelp() string
 	
@@ -88,6 +89,9 @@ type Language interface {
 	MsgVerboseDetails() string        // "  详细信息: 连接尝试耗时 %.2fms, 目标 %s:%s\n"
 	MsgVerboseConnection() string     // "  详细信息: 本地地址=%s, 远程地址=%s:%s\n"
 	MsgVerboseHTTP() string          // "  详细信息: 状态=%s, Content-Type=%s, Server=%s\n"
+	MsgVerboseHTTPDetails() string   // "  Details:\n"
+	MsgVerboseHTTPStatus() string    // "    Status: %s\n"
+	MsgVerboseHTTPHeaders() string   // "    Response Headers:\n"
 	
 	// Statistics
 	MsgTCPStatisticsTitle() string    // "\n\n--- 目标主机 TCP ping 统计 ---\n"

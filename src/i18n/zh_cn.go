@@ -78,6 +78,10 @@ func (s *SimplifiedChineseLang) OptInsecure() string {
 	return "跳过SSL/TLS证书验证（仅在HTTP模式下有效）"
 }
 
+func (s *SimplifiedChineseLang) OptLanguage() string {
+	return "设置语言 (en-US, ja-JP, ko-KR, zh-TW, zh-CN)"
+}
+
 func (s *SimplifiedChineseLang) OptVersion() string {
 	return "显示版本信息"
 }
@@ -263,6 +267,18 @@ func (s *SimplifiedChineseLang) MsgVerboseConnection() string {
 
 func (s *SimplifiedChineseLang) MsgVerboseHTTP() string {
 	return "  详细信息: 状态=%s, Content-Type=%s, Server=%s\n"
+}
+
+func (s *SimplifiedChineseLang) MsgVerboseHTTPDetails() string {
+	return "  详细信息:\n"
+}
+
+func (s *SimplifiedChineseLang) MsgVerboseHTTPStatus() string {
+	return "    状态: %s\n"
+}
+
+func (s *SimplifiedChineseLang) MsgVerboseHTTPHeaders() string {
+	return "    响应头:\n"
 }
 
 // Statistics
