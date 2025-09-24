@@ -405,12 +405,21 @@ func pingOnce(ctx context.Context, address, port string, timeout int, stats *Sta
 
 	// 直接在当前goroutine中执行连接，避免不必要的goroutine创建
 	start := time.Now()
-	
-	// 创建带超时的dialer，复用连接配置
+
+	// 创建带超时和socket复用的dialer，减少端口消耗
 	dialer := &net.Dialer{
 		Timeout: time.Duration(timeout) * time.Millisecond,
+		// 启用socket复用以减少TIME_WAIT状态的影响
+		Control: func(network, address string, c syscall.RawConn) error {
+			var err error
+			c.Control(func(fd uintptr) {
+				// 启用SO_REUSEADDR以允许地址重用
+				err = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			})
+			return err
+		},
 	}
-	
+
 	conn, err := dialer.DialContext(dialCtx, "tcp", address+":"+port)
 	elapsed := float64(time.Since(start).Microseconds()) / 1000.0
 
